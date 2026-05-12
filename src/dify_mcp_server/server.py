@@ -111,7 +111,7 @@ class DifyAPI(ABC):
             "Content-Type": "application/json"
         }
         data = {
-            "inputs": inputs,
+            "inputs": {},
             "query": inputs.get('query'),
             "response_mode": response_mode,
             "user": user,
@@ -276,7 +276,9 @@ class DifyAPI(ABC):
         response.raise_for_status()
         return response.json()
 
-
+# ✅ 正确设置环境变量（必须在启动服务前设置）
+# os.environ["DIFY_BASE_URL"] = "http://192.168.1.17/v1"  # 你的dify地址
+# os.environ["DIFY_APP_SKS"] = "app-6fpDZgOJghiPls3DDqDruja9"  # 你的密钥
 base_url, dify_app_sks = get_app_info()
 server = Server("dify_mcp_server")
 dify_api = DifyAPI(base_url, dify_app_sks)
@@ -367,12 +369,13 @@ async def handle_call_tool(
                 outputs = res['data']['outputs']
         mcp_out = []
         for _, v in outputs.items():
-            mcp_out.append(
-                types.TextContent(
-                    type='text',
-                    text=v
+            if v:
+                mcp_out.append(
+                    types.TextContent(
+                        type='text',
+                        text=v
+                    )
                 )
-            )
         return mcp_out
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -394,5 +397,17 @@ async def main():
             ),
         )
 
+
+def main_local():
+    # 2. 异步函数必须放在 async 函数里，用 await 调用
+    async def run():
+        await handle_list_tools()
+        await handle_call_tool("ChatFlow", {"query": "商家首次申领的相关政策内容"})
+
+    # 3. 运行异步任务
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     asyncio.run(main())
+    # main_local()
