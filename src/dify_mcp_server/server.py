@@ -54,11 +54,24 @@ class DifyAPI(ABC):
             self,
             api_key,
             inputs={},
+            app_mode="workflow",
             response_mode="streaming",
             conversation_id=None,
             user="default_user",
             files=None,):
-        url = f"{self.dify_base_url}/workflows/run"
+        # workflow       工作流类型     面向单轮自动化任务的编排工作流
+        # advanced-chat  ChatFlow     支持记忆的复杂多轮对话工作流
+        # chat           聊天助手       简单配置即可构建基于 LLM 的对话机器人
+        # agent-chat     Agent        具备推理与自主工具调用的智能助手
+        # completion     文本生成应用    用于文本生成任务的 AI 助手
+        url = ""
+        if "chat" in app_mode:
+            url = f"{self.dify_base_url}/chat-messages"
+        elif app_mode == "completion":
+            url = f"{self.dify_base_url}/completion-messages"
+        else:
+            url = f"{self.dify_base_url}/workflows/run"
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -241,9 +254,11 @@ async def handle_call_tool(
     if name in tool_names:
         tool_idx = tool_names.index(name)
         tool_sk = dify_api.dify_app_sks[tool_idx]
+        tool_mode = dify_api.dify_app_infos[tool_idx]['mode']
         responses = dify_api.chat_message(
             tool_sk,
             arguments,
+            tool_mode,
         )
         for res in responses:
             if res['event'] == 'workflow_finished':
