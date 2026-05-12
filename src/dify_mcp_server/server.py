@@ -50,28 +50,110 @@ class DifyAPI(ABC):
         self.dify_app_metas = dify_app_metas
         self.dify_app_names = [x['name'] for x in dify_app_infos]
 
-    def chat_message(
+    def workflow_message(
             self,
             api_key,
             inputs={},
-            app_mode="workflow",
             response_mode="streaming",
             conversation_id=None,
             user="default_user",
             files=None,):
-        # workflow       工作流类型     面向单轮自动化任务的编排工作流
-        # advanced-chat  ChatFlow     支持记忆的复杂多轮对话工作流
-        # chat           聊天助手       简单配置即可构建基于 LLM 的对话机器人
-        # agent-chat     Agent        具备推理与自主工具调用的智能助手
-        # completion     文本生成应用    用于文本生成任务的 AI 助手
-        url = ""
-        if "chat" in app_mode:
-            url = f"{self.dify_base_url}/chat-messages"
-        elif app_mode == "completion":
-            url = f"{self.dify_base_url}/completion-messages"
+        url = f"{self.dify_base_url}/workflows/run"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "inputs": inputs,
+            "response_mode": response_mode,
+            "user": user,
+        }
+        if conversation_id:
+            data["conversation_id"] = conversation_id
+        if files:
+            files_data = []
+            for file_info in files:
+                file_path = file_info.get('path')
+                transfer_method = file_info.get('transfer_method')
+                if transfer_method == 'local_file':
+                    files_data.append(('file', open(file_path, 'rb')))
+                elif transfer_method == 'remote_url':
+                    pass
+            response = requests.post(
+                url, headers=headers, data=data, files=files_data, stream=response_mode == "streaming")
         else:
-            url = f"{self.dify_base_url}/workflows/run"
+            response = requests.post(
+                url, headers=headers, json=data, stream=response_mode == "streaming")
+        response.raise_for_status()
+        if response_mode == "streaming":
+            for line in response.iter_lines():
+                if line:
+                    if line.startswith(b'data:'):
+                        try:
+                            json_data = json.loads(line[5:].decode('utf-8'))
+                            yield json_data
+                        except json.JSONDecodeError:
+                            print(f"Error decoding JSON: {line}")
+        else:
+            return response.json()
 
+    def chat_message(
+            self,
+            api_key,
+            inputs={},
+            response_mode="streaming",
+            conversation_id=None,
+            user="default_user",
+            files=None,):
+        url = f"{self.dify_base_url}/chat-messages"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "inputs": inputs,
+            "query": inputs.get('query'),
+            "response_mode": response_mode,
+            "user": user,
+        }
+        if conversation_id:
+            data["conversation_id"] = conversation_id
+        if files:
+            files_data = []
+            for file_info in files:
+                file_path = file_info.get('path')
+                transfer_method = file_info.get('transfer_method')
+                if transfer_method == 'local_file':
+                    files_data.append(('file', open(file_path, 'rb')))
+                elif transfer_method == 'remote_url':
+                    pass
+            response = requests.post(
+                url, headers=headers, data=data, files=files_data, stream=response_mode == "streaming")
+        else:
+            response = requests.post(
+                url, headers=headers, json=data, stream=response_mode == "streaming")
+        response.raise_for_status()
+        if response_mode == "streaming":
+            for line in response.iter_lines():
+                if line:
+                    if line.startswith(b'data:'):
+                        try:
+                            json_data = json.loads(line[5:].decode('utf-8'))
+                            yield json_data
+                        except json.JSONDecodeError:
+                            print(f"Error decoding JSON: {line}")
+        else:
+            return response.json()
+
+    def completion_message(
+            self,
+            api_key,
+            inputs={},
+            response_mode="streaming",
+            conversation_id=None,
+            user="default_user",
+            files=None,):
+        url = f"{self.dify_base_url}/completion-messages"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -254,12 +336,32 @@ async def handle_call_tool(
     if name in tool_names:
         tool_idx = tool_names.index(name)
         tool_sk = dify_api.dify_app_sks[tool_idx]
+        # workflow       工作流类型     面向单轮自动化任务的编排工作流
+        # advanced-chat  ChatFlow     支持记忆的复杂多轮对话工作流
+        # chat           聊天助手       简单配置即可构建基于 LLM 的对话机器人
+        # agent-chat     Agent        具备推理与自主工具调用的智能助手
+        # completion     文本生成应用    用于文本生成任务的 AI 助手
         tool_mode = dify_api.dify_app_infos[tool_idx]['mode']
-        responses = dify_api.chat_message(
-            tool_sk,
-            arguments,
-            tool_mode,
-        )
+        responses = {}
+        if tool_mode == "workflow":
+            responses = dify_api.workflow_message(
+                tool_sk,
+                arguments,
+            )
+        elif "chat" in tool_mode:
+            responses = dify_api.chat_message(
+                tool_sk,
+                arguments,
+            )
+        elif tool_mode == "completion":
+            responses = dify_api.completion_message(
+                tool_sk,
+                arguments,
+            )
+        else:
+            # todo: add more tool mode
+            var = None
+
         for res in responses:
             if res['event'] == 'workflow_finished':
                 outputs = res['data']['outputs']
